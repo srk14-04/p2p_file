@@ -27,15 +27,21 @@ export const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || 'http://local
  * env vars below in client/.env.production. If unset, we fall back to the
  * free public Open Relay service (best-effort, rate-limited — fine for demos).
  */
-const TURN_URL = import.meta.env.VITE_TURN_URL;
+// VITE_TURN_URL may be a single URL or a comma-separated list (TURN providers
+// usually give several: :80, :443, and :443?transport=tcp to punch through
+// restrictive firewalls). They share the same username/credential.
+const TURN_URLS = (import.meta.env.VITE_TURN_URL || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const TURN_USERNAME = import.meta.env.VITE_TURN_USERNAME;
 const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL;
 
 export const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  ...(TURN_URL && TURN_USERNAME && TURN_CREDENTIAL
-    ? [{ urls: TURN_URL, username: TURN_USERNAME, credential: TURN_CREDENTIAL }]
+  ...(TURN_URLS.length && TURN_USERNAME && TURN_CREDENTIAL
+    ? [{ urls: TURN_URLS, username: TURN_USERNAME, credential: TURN_CREDENTIAL }]
     : [
         // Free public TURN fallback (Open Relay by Metered) — best-effort.
         { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -58,6 +64,7 @@ export const MSG_TYPE = {
   FILE_META: 'file-meta',
   CHUNK: 'chunk',
   TRANSFER_COMPLETE: 'transfer-complete',
+  RESUME_FROM: 'resume-from', // receiver → sender: chunk index to (re)start at
 };
 
 /** Transfer states */

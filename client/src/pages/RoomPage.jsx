@@ -34,6 +34,9 @@ export default function RoomPage() {
   // Keep file reference for sender
   const fileRef = useRef(null);
 
+  // Guards the sender against starting the transfer twice on one connection.
+  const sendStartedRef = useRef(false);
+
   // ------------------------------------------------------------------
   // 1. Initialization
   // ------------------------------------------------------------------
@@ -125,9 +128,20 @@ export default function RoomPage() {
 
     // ----- SENDER LOGIC -----
     if (isSender) {
+      // Start (or resume) the send exactly once per connection. The receiver
+      // tells us which chunk to begin at via a RESUME_FROM control message
+      // (0 for a fresh transfer, or its first missing chunk after a reconnect).
+      const beginSend = (startChunk) => {
+        if (sendStartedRef.current) return;
+        sendStartedRef.current = true;
+        transfer.startSending(fileRef.current, webrtc.sendData, cryptoKey, startChunk);
+      };
+
       signaling.setOnPeerJoined(async () => {
         try {
-          const pc = webrtc.createConnection();
+          // New (or re-established) connection — allow a fresh (re)start.
+          sendStartedRef.current = false;
+          webrtc.createConnection();
           const offer = await webrtc.createOffer();
           signaling.sendOffer(offer);
         } catch (err) {
@@ -138,7 +152,7 @@ export default function RoomPage() {
       signaling.setOnAnswer(async (answer) => {
         await webrtc.handleAnswer(answer);
       });
-      
+
       signaling.setOnIceCandidate(async (candidate) => {
         await webrtc.addIceCandidate(candidate);
       });
@@ -147,22 +161,28 @@ export default function RoomPage() {
         signaling.sendIceCandidate(candidate);
       });
 
-      // When data channel opens, sender begins sending
-      webrtc.setOnDataChannelOpen(async () => {
-        console.log('[room] Data channel open. Starting sender flow.');
-        
-        // Check if there's a resume state
-        let startChunk = 0;
-        
-        // Start transfer
-        transfer.startSending(
-          fileRef.current, 
-          webrtc.sendData, 
-          cryptoKey,
-          startChunk
-        );
+      // Receiver tells us where to (re)start from.
+      webrtc.setOnDataChannelMessage((data) => {
+        if (typeof data !== 'string') return;
+        try {
+          const msg = JSON.parse(data);
+          if (msg.type === MSG_TYPE.RESUME_FROM) {
+            const startChunk = Number.isInteger(msg.index) && msg.index > 0 ? msg.index : 0;
+            console.log('[room] Receiver requested resume from chunk', startChunk);
+            beginSend(startChunk);
+          }
+        } catch (e) {
+          console.error('Failed to parse control message:', e);
+        }
       });
-    } 
+
+      // When the channel opens, wait briefly for the receiver's resume point.
+      // If it never arrives (e.g. an older client), fall back to a full send.
+      webrtc.setOnDataChannelOpen(async () => {
+        console.log('[room] Data channel open. Awaiting receiver resume point...');
+        setTimeout(() => beginSend(0), 3000);
+      });
+    }
     
     // ----- RECEIVER LOGIC -----
     else {
@@ -182,6 +202,18 @@ export default function RoomPage() {
 
       webrtc.setOnIceCandidate((candidate) => {
         signaling.sendIceCandidate(candidate);
+      });
+
+      // On (re)connection, tell the sender the first chunk we still need so it
+      // can resume rather than restart from 0. Fresh transfer → 0.
+      webrtc.setOnDataChannelOpen((dc) => {
+        const startChunk = transfer.getFirstMissingChunk();
+        console.log('[room] Channel open. Requesting resume from chunk', startChunk);
+        try {
+          dc.send(JSON.stringify({ type: MSG_TYPE.RESUME_FROM, index: startChunk }));
+        } catch (e) {
+          console.error('Failed to send resume request:', e);
+        }
       });
 
       // Handle incoming file data

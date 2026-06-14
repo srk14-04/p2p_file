@@ -146,23 +146,49 @@ export function useFileTransfer() {
   // ------------------------------------------------------------------
 
   const initReceiver = useCallback((metadata, startChunk = 0) => {
-    receivedChunksRef.current = new Array(metadata.totalChunks).fill(null);
+    // If we already hold chunks for this same-sized transfer (a transient
+    // disconnect where the tab stayed open), KEEP them so the sender can resume
+    // from the first missing chunk instead of re-sending everything. Otherwise
+    // allocate a fresh buffer.
+    const existing = receivedChunksRef.current;
+    const isResume =
+      Array.isArray(existing) &&
+      existing.length === metadata.totalChunks &&
+      existing.some(Boolean);
+    if (!isResume) {
+      receivedChunksRef.current = new Array(metadata.totalChunks).fill(null);
+    }
     speedSamplesRef.current = [];
     isCancelledRef.current = false;
     isPausedRef.current = false;
 
     setFileInfo(metadata);
     setTransferState(startChunk > 0 ? TRANSFER_STATE.RESUMING : TRANSFER_STATE.WAITING);
-    setProgress({
-      percent: 0,
-      bytesTransferred: 0,
+    setProgress((p) => ({
+      ...p,
+      // Preserve visible progress on resume; reset it for a fresh transfer.
+      percent: isResume ? p.percent : 0,
+      bytesTransferred: isResume ? p.bytesTransferred : 0,
       totalBytes: metadata.size,
       speed: 0,
       eta: 0,
       currentChunk: startChunk,
       totalChunks: metadata.totalChunks,
       resumedFrom: startChunk > 0 ? startChunk : -1,
-    });
+    }));
+  }, []);
+
+  /**
+   * Returns the index of the first chunk we have NOT yet received (0 for a
+   * fresh transfer). The receiver sends this to the sender to drive resume.
+   */
+  const getFirstMissingChunk = useCallback(() => {
+    const arr = receivedChunksRef.current;
+    if (!Array.isArray(arr) || arr.length === 0) return 0;
+    for (let i = 0; i < arr.length; i++) {
+      if (!arr[i]) return i;
+    }
+    return arr.length;
   }, []);
 
   /**
@@ -306,6 +332,7 @@ export function useFileTransfer() {
     initReceiver,
     processReceivedChunk,
     downloadFile,
+    getFirstMissingChunk,
 
     // Control
     pause,
