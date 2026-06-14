@@ -20,14 +20,19 @@ const PORT = process.env.PORT || 3001;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 const ROOM_CLEANUP_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
+// Allow one or more client origins. Set CLIENT_URL to a comma-separated list
+// to permit several (e.g. "http://localhost:5173,https://your-app.vercel.app")
+// so you can test locally and from the deployed site against the same server.
+const allowedOrigins = CLIENT_URL.split(',').map((o) => o.trim()).filter(Boolean);
+
 // ------------------------------------------------------------------
 // CORS & Socket.io Setup
 // ------------------------------------------------------------------
-app.use(cors({ origin: CLIENT_URL }));
+app.use(cors({ origin: allowedOrigins }));
 
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_URL,
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
   },
 });

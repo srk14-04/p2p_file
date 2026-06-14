@@ -11,7 +11,7 @@
  */
 
 import { useRef, useCallback, useState } from 'react';
-import { CHUNK_SIZE, SPEED_WINDOW_SIZE, TRANSFER_STATE } from '../utils/constants';
+import { CHUNK_SIZE, SPEED_WINDOW_SIZE, TRANSFER_STATE, MSG_TYPE } from '../utils/constants';
 import { encryptChunk, decryptChunk, hashChunk, hashFile, hashesEqual } from '../utils/crypto';
 import {
   getTotalChunks,
@@ -70,6 +70,14 @@ export function useFileTransfer() {
         fileHash,
       };
       setFileInfo(meta);
+
+      // Send the file metadata to the receiver BEFORE any chunks. The data
+      // channel is ordered, so this string message is guaranteed to arrive
+      // ahead of chunk 0 — the receiver uses it to size its buffer and to
+      // know the file name/type for download. (Previously this relied on a
+      // RoomPage effect gated on transferState===HASHING, which never fired
+      // because fileInfo is only set as the state flips to TRANSFERRING.)
+      await sendDataFn(JSON.stringify({ type: MSG_TYPE.FILE_META, metadata: meta }));
 
       setTransferState(TRANSFER_STATE.TRANSFERRING);
       speedSamplesRef.current = [];

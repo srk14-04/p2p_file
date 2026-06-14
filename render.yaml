@@ -1,0 +1,16 @@
+# Render Blueprint for the P2P Web Share signaling server.
+# Render Dashboard → New → Blueprint → select this repo.
+services:
+  - type: web
+    name: p2p-webshare-signaling
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      # Set this to your deployed frontend origin(s), comma-separated.
+      # e.g. https://your-app.vercel.app  (or include localhost for testing)
+      - key: CLIENT_URL
+        sync: false

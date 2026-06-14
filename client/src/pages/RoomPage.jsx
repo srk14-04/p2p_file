@@ -214,13 +214,16 @@ export default function RoomPage() {
 
   }, [isInitializing, isSender, cryptoKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Send metadata over data channel once it's open (sender side)
+  // Note: file metadata is sent to the RECEIVER from within startSending() in
+  // useFileTransfer (ordered ahead of chunk 0). Here we additionally publish it
+  // to the signaling SERVER so a receiver who reconnects mid-transfer can
+  // auto-resume (the server hands it back as resumeState on re-join). Harmless
+  // if no receiver is present yet.
   useEffect(() => {
-    if (isSender && transfer.fileInfo && webrtc.connectionState === CONNECTION_STATE.CONNECTED && transfer.transferState === TRANSFER_STATE.HASHING) {
-      const metaMsg = JSON.stringify({ type: MSG_TYPE.FILE_META, metadata: transfer.fileInfo });
-      webrtc.sendData(metaMsg).catch(console.error);
+    if (isSender && transfer.fileInfo) {
+      signaling.sendFileMetadata(transfer.fileInfo);
     }
-  }, [isSender, transfer.fileInfo, webrtc.connectionState, transfer.transferState]);
+  }, [isSender, transfer.fileInfo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle transfer completion (receiver side) — mark ready, don't auto-download
   useEffect(() => {
