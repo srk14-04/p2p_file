@@ -41,12 +41,16 @@ export function useFileTransfer() {
   const isCancelledRef = useRef(false);
   const receivedChunksRef = useRef([]);
   const speedSamplesRef = useRef([]); // timestamps for speed calculation
+  const sendTokenRef = useRef(0); // identifies the current send loop; a resume bumps it
 
   // ------------------------------------------------------------------
   // SENDER: Send file over data channel
   // ------------------------------------------------------------------
 
   const startSending = useCallback(async (file, sendDataFn, encryptionKey, startChunk = 0) => {
+    // Supersede any in-flight send loop (e.g. a resume after reconnect): the
+    // older loop sees the token change and bails out, so only one loop sends.
+    const myToken = ++sendTokenRef.current;
     try {
       isCancelledRef.current = false;
       isPausedRef.current = false;
@@ -83,8 +87,11 @@ export function useFileTransfer() {
       speedSamplesRef.current = [];
 
       for (let i = startChunk; i < totalChunks; i++) {
+        // Bail out if a newer send loop has taken over (resume after reconnect).
+        if (sendTokenRef.current !== myToken) return;
         // Check for pause/cancel
         while (isPausedRef.current) {
+          if (sendTokenRef.current !== myToken) return;
           await new Promise((r) => setTimeout(r, 100));
         }
         if (isCancelledRef.current) {
@@ -133,8 +140,13 @@ export function useFileTransfer() {
         });
       }
 
-      setTransferState(TRANSFER_STATE.COMPLETED);
+      if (sendTokenRef.current === myToken) {
+        setTransferState(TRANSFER_STATE.COMPLETED);
+      }
     } catch (err) {
+      // A send failure on a superseded loop (stale closed channel) is expected
+      // during a reconnect — don't surface it as a transfer error.
+      if (sendTokenRef.current !== myToken) return;
       console.error('[transfer] Send error:', err);
       setTransferError(err.message);
       setTransferState(TRANSFER_STATE.ERROR);

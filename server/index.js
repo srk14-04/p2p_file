@@ -157,6 +157,50 @@ io.on('connection', (socket) => {
   });
 
   // ----------------------------------------------------------------
+  // RECLAIM ROOM — A peer that briefly dropped re-attaches to its SAME
+  // room (by id) instead of creating/joining a fresh one. This is what
+  // makes auto-resume across a dropped connection actually work.
+  // ----------------------------------------------------------------
+  socket.on('reclaim-room', ({ roomId, role }, callback) => {
+    const room = rooms.get(roomId);
+    if (!room) {
+      return callback({ error: 'room-not-found' });
+    }
+
+    // The peer is back — cancel any pending room cleanup.
+    if (room.cleanupTimer) {
+      clearTimeout(room.cleanupTimer);
+      room.cleanupTimer = null;
+    }
+
+    socket.join(roomId);
+    socket.data.roomId = roomId;
+    socket.data.role = role;
+
+    if (role === 'sender') {
+      room.senderId = socket.id;
+    } else {
+      room.receiverId = socket.id;
+    }
+
+    console.log(`[reclaim-room] ${socket.id} reclaimed ${role} of room ${roomId}`);
+
+    // Once both peers are present again, ask the SENDER to (re)create the
+    // WebRTC offer so the data channel — and the transfer — can resume.
+    if (room.senderId && room.receiverId) {
+      io.to(room.senderId).emit('peer-joined', { peerId: room.receiverId });
+    }
+
+    callback({
+      success: true,
+      resumeState: {
+        fileMetadata: room.fileMetadata,
+        lastVerifiedChunk: room.lastVerifiedChunk,
+      },
+    });
+  });
+
+  // ----------------------------------------------------------------
   // FILE METADATA — Sender shares file info for the room
   // ----------------------------------------------------------------
   socket.on('file-metadata', (metadata) => {

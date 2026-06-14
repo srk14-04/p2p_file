@@ -25,6 +25,11 @@ export function useSignaling() {
   const onFileMetadataRef = useRef(null);
   const onResumeStateRef = useRef(null);
   const onTransferCompleteRef = useRef(null);
+  const onReconnectRef = useRef(null);
+
+  // True once we've connected at least once — used to distinguish the first
+  // connect from a reconnect after a dropped network.
+  const hasConnectedRef = useRef(false);
 
   // Initialize Socket.io connection
   useEffect(() => {
@@ -42,6 +47,12 @@ export function useSignaling() {
       console.log('[signaling] Connected:', socket.id);
       setIsConnected(true);
       setError(null);
+      if (hasConnectedRef.current) {
+        // Reconnect after a drop — let the page re-attach to its room and resume.
+        onReconnectRef.current?.();
+      } else {
+        hasConnectedRef.current = true;
+      }
     });
 
     socket.on('disconnect', (reason) => {
@@ -127,6 +138,30 @@ export function useSignaling() {
     });
   }, []);
 
+  const reclaimRoom = useCallback((targetRoomId, role) => {
+    return new Promise((resolve, reject) => {
+      const socket = socketRef.current;
+      if (!socket?.connected) {
+        return reject(new Error('Not connected to signaling server'));
+      }
+
+      socket.emit('reclaim-room', { roomId: targetRoomId, role }, (response) => {
+        if (response.error) {
+          setError(response.error);
+          return reject(new Error(response.error));
+        }
+        setRoomId(targetRoomId);
+        setPeerPresent(true);
+        console.log('[signaling] Reclaimed room:', targetRoomId);
+
+        if (response.resumeState && onResumeStateRef.current) {
+          onResumeStateRef.current(response.resumeState);
+        }
+        resolve(response.resumeState);
+      });
+    });
+  }, []);
+
   // ------------------------------------------------------------------
   // Signaling Methods
   // ------------------------------------------------------------------
@@ -167,6 +202,7 @@ export function useSignaling() {
   const setOnFileMetadata = useCallback((cb) => { onFileMetadataRef.current = cb; }, []);
   const setOnResumeState = useCallback((cb) => { onResumeStateRef.current = cb; }, []);
   const setOnTransferComplete = useCallback((cb) => { onTransferCompleteRef.current = cb; }, []);
+  const setOnReconnect = useCallback((cb) => { onReconnectRef.current = cb; }, []);
 
   return {
     // State
@@ -178,6 +214,7 @@ export function useSignaling() {
     // Room management
     createRoom,
     joinRoom,
+    reclaimRoom,
 
     // Signaling methods
     sendOffer,
@@ -196,5 +233,6 @@ export function useSignaling() {
     setOnFileMetadata,
     setOnResumeState,
     setOnTransferComplete,
+    setOnReconnect,
   };
 }

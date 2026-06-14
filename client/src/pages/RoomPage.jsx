@@ -37,6 +37,11 @@ export default function RoomPage() {
   // Guards the sender against starting the transfer twice on one connection.
   const sendStartedRef = useRef(false);
 
+  // The established room ID — survives socket reconnects so we can re-attach
+  // to the SAME room instead of creating/joining a new one.
+  const roomIdRef = useRef(null);
+  const initialConnectRef = useRef(false);
+
   // ------------------------------------------------------------------
   // 1. Initialization
   // ------------------------------------------------------------------
@@ -83,20 +88,23 @@ export default function RoomPage() {
   // 2. Signaling & Room Connection
   // ------------------------------------------------------------------
   useEffect(() => {
-    if (isInitializing || !signaling.isConnected) return;
+    if (isInitializing || !signaling.isConnected || initialConnectRef.current) return;
+    initialConnectRef.current = true;
 
-    async function connectRoom() {
+    (async function connectRoom() {
       if (isSender) {
-        // Sender creates room
+        // Sender creates the room (once).
         try {
-          const roomId = await signaling.createRoom();
+          const newRoomId = await signaling.createRoom();
+          roomIdRef.current = newRoomId;
           // Update URL without reloading (to show the room ID)
-          window.history.replaceState({}, '', `/room/${roomId}#key=${encryptionKeyStr}`);
+          window.history.replaceState({}, '', `/room/${newRoomId}#key=${encryptionKeyStr}`);
         } catch (err) {
           console.error('Failed to create room:', err);
         }
       } else {
-        // Receiver joins existing room
+        // Receiver joins existing room (once).
+        roomIdRef.current = id;
         try {
           const resumeState = await signaling.joinRoom(id);
           if (resumeState?.fileMetadata) {
@@ -109,16 +117,36 @@ export default function RoomPage() {
           navigate('/');
         }
       }
-    }
+    })();
+  }, [isInitializing, signaling.isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    connectRoom();
-    
-    // Cleanup on unmount
+  // ------------------------------------------------------------------
+  // 2b. Reconnection — reclaim the SAME room (don't create/join fresh, and
+  // don't wipe transfer state) so a dropped transfer can auto-resume.
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    signaling.setOnReconnect(async () => {
+      const rid = roomIdRef.current;
+      if (!rid) return;
+      console.log('[room] Reconnected — reclaiming room', rid);
+      try {
+        await signaling.reclaimRoom(rid, isSender ? 'sender' : 'receiver');
+      } catch (err) {
+        console.error('[room] Failed to reclaim room after reconnect:', err);
+      }
+    });
+  }, [isSender]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ------------------------------------------------------------------
+  // 2c. Tear down ONLY on real unmount — never on a transient reconnect,
+  // so received chunks survive a brief drop and the transfer can resume.
+  // ------------------------------------------------------------------
+  useEffect(() => {
     return () => {
       webrtc.closeConnection();
       transfer.cancel();
     };
-  }, [isInitializing, signaling.isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------------
   // 3. WebRTC Setup & Negotiation
