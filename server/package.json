@@ -1,0 +1,19 @@
+{
+  "name": "p2p-webshare-signaling",
+  "version": "1.0.0",
+  "description": "Lightweight signaling server for P2P Web Share — coordinates WebRTC handshakes without touching file data",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "npx nodemon index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
