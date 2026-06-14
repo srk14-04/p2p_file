@@ -285,7 +285,7 @@ export default function RoomPage() {
 
         {/* Sender Specific: Share Link */}
         {isSender && (
-          <ShareLink roomId={roomIdToDisplay} encryptionKey={encryptionKeyStr} />
+          <ShareLink roomId={signaling.roomId} encryptionKey={encryptionKeyStr} />
         )}
 
         {/* File Info */}

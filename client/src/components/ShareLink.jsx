@@ -10,10 +10,18 @@ import { useState } from 'react';
 export default function ShareLink({ roomId, encryptionKey }) {
   const [copied, setCopied] = useState(false);
 
+  // The room only exists once the signaling server has assigned a real ID.
+  // Until then `roomId` is null/placeholder ("Creating...") — sharing that
+  // would produce a dead link the receiver can't join ("Room not found").
+  const isReady = Boolean(roomId) && roomId !== 'Creating...' && Boolean(encryptionKey);
+
   // Construct the full share URL including the encryption key in the hash
-  const shareUrl = `${window.location.origin}/room/${roomId}#key=${encryptionKey}`;
+  const shareUrl = isReady
+    ? `${window.location.origin}/room/${roomId}#key=${encryptionKey}`
+    : '';
 
   const handleCopy = async () => {
+    if (!isReady) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -38,9 +46,10 @@ export default function ShareLink({ roomId, encryptionKey }) {
           <input
             type="text"
             readOnly
-            value={shareUrl}
-            className="w-full bg-void/50 border border-glass-border rounded-lg py-3 px-4 text-sm text-gray-300 font-mono focus:outline-none focus:border-neon-indigo/50 pr-12"
-            onClick={(e) => e.target.select()}
+            value={isReady ? shareUrl : 'Creating secure room…'}
+            placeholder="Creating secure room…"
+            className={`w-full bg-void/50 border border-glass-border rounded-lg py-3 px-4 text-sm font-mono focus:outline-none focus:border-neon-indigo/50 pr-12 ${isReady ? 'text-gray-300' : 'text-gray-500 italic'}`}
+            onClick={(e) => isReady && e.target.select()}
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
             <svg className="w-4 h-4 text-neon-indigo" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -52,15 +61,20 @@ export default function ShareLink({ roomId, encryptionKey }) {
 
         <button
           onClick={handleCopy}
+          disabled={!isReady}
           className={`
             relative overflow-hidden flex items-center justify-center h-11 px-6 rounded-lg font-medium text-sm transition-all duration-300
-            ${copied 
-              ? 'bg-status-success text-white shadow-[0_0_15px_rgba(34,197,94,0.4)]' 
-              : 'bg-gradient-to-r from-neon-indigo to-neon-violet text-white hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:scale-[1.02]'
+            ${!isReady
+              ? 'bg-glass border border-glass-border text-gray-500 cursor-not-allowed'
+              : copied
+                ? 'bg-status-success text-white shadow-[0_0_15px_rgba(34,197,94,0.4)]'
+                : 'bg-gradient-to-r from-neon-indigo to-neon-violet text-white hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:scale-[1.02]'
             }
           `}
         >
-          {copied ? (
+          {!isReady ? (
+            <span className="flex items-center gap-2">Creating…</span>
+          ) : copied ? (
             <span className="flex items-center gap-2 animate-scale-in">
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
